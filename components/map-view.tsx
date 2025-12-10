@@ -133,6 +133,135 @@ function generateLeafletHTML(
         }).addTo(map);`
     }
 
+    // Checkpoints data
+    const checkpoints = ${checkpointsJson};
+    
+    // Helper functions
+    function parseLocalDate(dateString) {
+      if (!dateString) return null;
+      const [year, month, day] = dateString.split('-').map(Number);
+      return new Date(year, month - 1, day);
+    }
+    
+    function isToday(dateString) {
+      if (!dateString) return false;
+      const checkpointDate = parseLocalDate(dateString);
+      const today = new Date();
+      return checkpointDate.toDateString() === today.toDateString();
+    }
+    
+    function isUpcoming(dateString) {
+      if (!dateString) return false;
+      const checkpointDate = parseLocalDate(dateString);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      checkpointDate.setHours(0, 0, 0, 0);
+      return checkpointDate >= today;
+    }
+    
+    function getMarkerColor(checkpoint) {
+      return isUpcoming(checkpoint.Date) ? '#FF3B30' : '#007AFF';
+    }
+    
+    // Create custom marker icon
+    function createMarkerIcon(color, isToday) {
+      const size = 34;
+      return L.divIcon({
+        className: 'custom-marker',
+        html: \`
+          <div style="
+            width: \${size}px;
+            height: \${size}px;
+            position: relative;
+          ">
+            <svg viewBox="0 0 24 24" width="\${size}" height="\${size}" style="filter: drop-shadow(0 3px 6px rgba(0,0,0,0.4));">
+              <path fill="\${color}" stroke="white" stroke-width="1.5" d="M12 0C7.58 0 4 3.58 4 8c0 5.25 8 13 8 13s8-7.75 8-13c0-4.42-3.58-8-8-8z"/>
+              <circle cx="12" cy="8" r="3.5" fill="white"/>
+            </svg>
+            \${isToday ? '<div style="position: absolute; top: -5px; right: -5px; background: #FF6B35; color: white; border-radius: 50%; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">!</div>' : ''}
+          </div>
+        \`,
+        iconSize: [size, size],
+        iconAnchor: [size / 2, size],
+        popupAnchor: [0, -size + 5],
+      });
+    }
+    
+    // Geocode location
+    async function geocodeLocation(locationName, state) {
+      try {
+        const query = \`\${locationName}, \${state}, USA\`;
+        const url = \`https://nominatim.openstreetmap.org/search?q=\${encodeURIComponent(query)}&format=json&limit=1\`;
+        const response = await fetch(url, {
+          headers: { 'User-Agent': 'DUI-Checkpoint-Map/1.0' }
+        });
+        if (!response.ok) return null;
+        const data = await response.json();
+        if (data && data.length > 0) {
+          return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+        }
+        return null;
+      } catch (error) {
+        console.error('Geocoding error:', error);
+        return null;
+      }
+    }
+    
+    // Default center (California)
+    const DEFAULT_CENTER = [36.7783, -119.4179];
+    const markersMap = new Map();
+    
+    // Add markers for checkpoints
+    async function addMarkers() {
+      for (const checkpoint of checkpoints) {
+        const color = getMarkerColor(checkpoint);
+        const isTodayCheckpoint = isToday(checkpoint.Date);
+        
+        // Try to geocode location
+        let coords = DEFAULT_CENTER;
+        if (checkpoint.City) {
+          const state = checkpoint.State || 'California';
+          const geocoded = await geocodeLocation(checkpoint.City, state);
+          if (geocoded) coords = geocoded;
+        }
+        
+        const icon = createMarkerIcon(color, isTodayCheckpoint);
+        const marker = L.marker(coords, { icon }).addTo(map);
+        
+        // Popup content
+        const popupContent = \`
+          <div style="padding: 8px; min-width: 150px;">
+            <div style="font-weight: bold; font-size: 14px; margin-bottom: 4px;">
+              \${checkpoint.City || 'Unknown City'}
+            </div>
+            <div style="font-size: 12px; color: #666; margin-bottom: 4px;">
+              \${checkpoint.County || ''}, \${checkpoint.State || ''}
+            </div>
+            <div style="font-size: 12px; color: #666;">
+              \${checkpoint.Date || 'Date TBD'}
+            </div>
+          </div>
+        \`;
+        
+        marker.bindPopup(popupContent);
+        
+        // Handle marker click
+        marker.on('click', function() {
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'markerClick',
+              checkpointId: checkpoint.id
+            }));
+          }
+        });
+        
+        markersMap.set(checkpoint.id, marker);
+      }
+    }
+    
+    // Add markers after map is ready
+    addMarkers();
+    
     // Handle map events
     map.on('moveend', function() {
       var center = map.getCenter();
@@ -312,9 +441,23 @@ export function MapViewComponent({
     <View style={styles.container}>
       <WebView
         ref={webViewRef}
-        source={{ html: generateLeafletHTML(initialRegion.latitude, initialRegion.longitude, zoom, darkMode) }}
+        source={{ html: generateLeafletHTML(initialRegion.latitude, initialRegion.longitude, zoom, checkpoints, onMarkerClick, darkMode) }}
         style={styles.map}
-        onMessage={handleMessage}
+        onMessage={(event: any) => {
+          handleMessage(event);
+          // Handle marker clicks
+          try {
+            const data = JSON.parse(event.nativeEvent.data);
+            if (data.type === 'markerClick' && onMarkerClick) {
+              const checkpoint = checkpoints.find(cp => cp.id === data.checkpointId);
+              if (checkpoint) {
+                onMarkerClick(checkpoint);
+              }
+            }
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }}
         javaScriptEnabled={true}
         domStorageEnabled={true}
         startInLoadingState={true}
