@@ -1,8 +1,30 @@
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import type { Checkpoint } from '@/lib/types/checkpoint';
+import Constants from 'expo-constants';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 
-// For mobile, we'll use WebView to render Leaflet
+// For mobile, we'll use @rnmapbox/maps
+let Mapbox: any = null;
+let MapView: any = null;
+let PointAnnotation: any = null;
+let Camera: any = null;
+let setAccessToken: any = null;
+
+if (Platform.OS !== 'web') {
+  try {
+    const mapbox = require('@rnmapbox/maps');
+    Mapbox = mapbox;
+    MapView = mapbox.MapView;
+    PointAnnotation = mapbox.PointAnnotation;
+    Camera = mapbox.Camera;
+    setAccessToken = mapbox.setAccessToken;
+  } catch (error) {
+    console.log('@rnmapbox/maps not available');
+  }
+}
+
+// For mobile, we'll use WebView to render Mapbox GL JS
 let WebView: any = null;
 if (Platform.OS !== 'web') {
   try {
@@ -11,8 +33,6 @@ if (Platform.OS !== 'web') {
     console.log('react-native-webview not available');
   }
 }
-
-import type { Checkpoint } from '@/lib/types/checkpoint';
 
 interface MapViewComponentProps {
   initialRegion?: {
@@ -37,32 +57,45 @@ interface MapViewComponentProps {
   zoomControlEnabled?: boolean;
 }
 
+// California, USA default location
 const DEFAULT_REGION = {
-  latitude: 37.78825,
-  longitude: -122.4324,
-  latitudeDelta: 0.0922,
-  longitudeDelta: 0.0421,
+  latitude: 36.7783,
+  longitude: -119.4179,
+  latitudeDelta: 5.0,
+  longitudeDelta: 5.0,
 };
 
-// Generate Leaflet HTML with dark mode and markers
-function generateLeafletHTML(
+// Get Mapbox API key from environment
+function getMapboxApiKey(): string {
+  return (
+    Constants.expoConfig?.extra?.mapboxApiKey ||
+    process.env.EXPO_PUBLIC_MAPBOX_API_KEY ||
+    ''
+  );
+}
+
+// Generate Mapbox GL JS HTML for WebView (mobile) and web
+function generateMapboxHTML(
   latitude: number,
   longitude: number,
   zoom: number,
   checkpoints: Checkpoint[] = [],
   onMarkerClick?: (checkpoint: Checkpoint) => void,
-  darkMode: boolean = true
+  darkMode: boolean = true,
+  apiKey: string = ''
 ): string {
-  // Serialize checkpoints for HTML
   const checkpointsJson = JSON.stringify(checkpoints);
+  const mapboxStyle = darkMode
+    ? 'mapbox://styles/mapbox/dark-v11'
+    : 'mapbox://styles/mapbox/light-v11';
+
   return `
 <!DOCTYPE html>
 <html>
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-     crossorigin=""/>
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet" />
   <style>
     * {
       margin: 0;
@@ -77,66 +110,67 @@ function generateLeafletHTML(
     #map {
       width: 100%;
       height: 100%;
-      background: ${darkMode ? '#1a1a1a' : '#f5f5f5'};
     }
-    ${darkMode ? `
-    /* Dark mode styles */
-    .leaflet-container {
-      background: #1a1a1a !important;
+    .mapboxgl-popup-content {
+      padding: 12px;
+      border-radius: 8px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
-    .leaflet-tile-container img {
-      filter: brightness(0.6) invert(1) hue-rotate(180deg) contrast(0.8);
+    .mapboxgl-popup-content h3 {
+      margin: 0 0 8px 0;
+      font-size: 16px;
+      font-weight: 600;
+      color: #1a1a1a;
     }
-    .leaflet-control-zoom a {
-      background-color: #2d2d2d !important;
-      color: #ffffff !important;
-      border: 1px solid #444 !important;
+    .mapboxgl-popup-content p {
+      margin: 4px 0;
+      font-size: 14px;
+      color: #666;
     }
-    .leaflet-control-zoom a:hover {
-      background-color: #3d3d3d !important;
+    .dui-marker {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background-color: #FF3B30;
+      border: 3px solid #FFFFFF;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      color: white;
+      font-size: 18px;
+      position: relative;
     }
-    .leaflet-control-attribution {
-      background-color: rgba(0, 0, 0, 0.7) !important;
-      color: #ccc !important;
+    .dui-marker::before {
+      content: '⚠';
     }
-    ` : ''}
+    .dui-marker.today {
+      background-color: #FF6B35;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+    }
   </style>
 </head>
 <body>
   <div id="map"></div>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-     crossorigin=""></script>
   <script>
-    // Initialize map
-    var map = L.map('map', {
-      zoomControl: true,
-      attributionControl: true,
-      scrollWheelZoom: true,
-      doubleClickZoom: true,
-      boxZoom: true,
-      keyboard: true,
-      dragging: true,
-      touchZoom: true
-    }).setView([${latitude}, ${longitude}], ${zoom});
+    mapboxgl.accessToken = '${apiKey}';
+    
+    const map = new mapboxgl.Map({
+      container: 'map',
+      style: '${mapboxStyle}',
+      center: [${longitude}, ${latitude}],
+      zoom: ${zoom},
+      pitch: 0,
+      bearing: 0
+    });
 
-    // Add tile layer - using CartoDB dark matter for dark mode, or OpenStreetMap for light
-    ${darkMode 
-      ? `L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-          subdomains: 'abcd',
-          maxZoom: 19
-        }).addTo(map);`
-      : `L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-          maxZoom: 19
-        }).addTo(map);`
-    }
-
-    // Checkpoints data
     const checkpoints = ${checkpointsJson};
     
-    // Helper functions
     function parseLocalDate(dateString) {
       if (!dateString) return null;
       const [year, month, day] = dateString.split('-').map(Number);
@@ -158,47 +192,21 @@ function generateLeafletHTML(
       checkpointDate.setHours(0, 0, 0, 0);
       return checkpointDate >= today;
     }
-    
-    function getMarkerColor(checkpoint) {
-      return isUpcoming(checkpoint.Date) ? '#FF3B30' : '#007AFF';
-    }
-    
-    // Create custom marker icon
-    function createMarkerIcon(color, isToday) {
-      const size = 34;
-      return L.divIcon({
-        className: 'custom-marker',
-        html: \`
-          <div style="
-            width: \${size}px;
-            height: \${size}px;
-            position: relative;
-          ">
-            <svg viewBox="0 0 24 24" width="\${size}" height="\${size}" style="filter: drop-shadow(0 3px 6px rgba(0,0,0,0.4));">
-              <path fill="\${color}" stroke="white" stroke-width="1.5" d="M12 0C7.58 0 4 3.58 4 8c0 5.25 8 13 8 13s8-7.75 8-13c0-4.42-3.58-8-8-8z"/>
-              <circle cx="12" cy="8" r="3.5" fill="white"/>
-            </svg>
-            \${isToday ? '<div style="position: absolute; top: -5px; right: -5px; background: #FF6B35; color: white; border-radius: 50%; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">!</div>' : ''}
-          </div>
-        \`,
-        iconSize: [size, size],
-        iconAnchor: [size / 2, size],
-        popupAnchor: [0, -size + 5],
-      });
-    }
+
+    // Default center (California)
+    const DEFAULT_CENTER = [${longitude}, ${latitude}];
     
     // Geocode location
     async function geocodeLocation(locationName, state) {
       try {
         const query = \`\${locationName}, \${state}, USA\`;
-        const url = \`https://nominatim.openstreetmap.org/search?q=\${encodeURIComponent(query)}&format=json&limit=1\`;
-        const response = await fetch(url, {
-          headers: { 'User-Agent': 'DUI-Checkpoint-Map/1.0' }
-        });
+        const url = \`https://api.mapbox.com/geocoding/v5/mapbox.places/\${encodeURIComponent(query)}.json?access_token=\${mapboxgl.accessToken}&limit=1\`;
+        const response = await fetch(url);
         if (!response.ok) return null;
         const data = await response.json();
-        if (data && data.length > 0) {
-          return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+        if (data && data.features && data.features.length > 0) {
+          const [lng, lat] = data.features[0].center;
+          return [lat, lng];
         }
         return null;
       } catch (error) {
@@ -206,16 +214,19 @@ function generateLeafletHTML(
         return null;
       }
     }
-    
-    // Default center (California)
-    const DEFAULT_CENTER = [36.7783, -119.4179];
-    const markersMap = new Map();
-    
+
+    // Create custom marker element
+    function createMarkerElement(isToday) {
+      const el = document.createElement('div');
+      el.className = 'dui-marker' + (isToday ? ' today' : '');
+      return el;
+    }
+
     // Add markers for checkpoints
     async function addMarkers() {
       for (const checkpoint of checkpoints) {
-        const color = getMarkerColor(checkpoint);
         const isTodayCheckpoint = isToday(checkpoint.Date);
+        const isUpcomingCheckpoint = isUpcoming(checkpoint.Date);
         
         // Try to geocode location
         let coords = DEFAULT_CENTER;
@@ -225,28 +236,31 @@ function generateLeafletHTML(
           if (geocoded) coords = geocoded;
         }
         
-        const icon = createMarkerIcon(color, isTodayCheckpoint);
-        const marker = L.marker(coords, { icon }).addTo(map);
+        // Create marker
+        const el = createMarkerElement(isTodayCheckpoint);
+        const marker = new mapboxgl.Marker(el)
+          .setLngLat([coords[1], coords[0]])
+          .addTo(map);
         
         // Popup content
         const popupContent = \`
-          <div style="padding: 8px; min-width: 150px;">
-            <div style="font-weight: bold; font-size: 14px; margin-bottom: 4px;">
-              \${checkpoint.City || 'Unknown City'}
-            </div>
-            <div style="font-size: 12px; color: #666; margin-bottom: 4px;">
-              \${checkpoint.County || ''}, \${checkpoint.State || ''}
-            </div>
-            <div style="font-size: 12px; color: #666;">
-              \${checkpoint.Date || 'Date TBD'}
-            </div>
+          <div>
+            <h3>\${checkpoint.City || 'Unknown City'}</h3>
+            <p><strong>County:</strong> \${checkpoint.County || 'N/A'}</p>
+            <p><strong>State:</strong> \${checkpoint.State || 'N/A'}</p>
+            <p><strong>Date:</strong> \${checkpoint.Date || 'Date TBD'}</p>
+            \${checkpoint.Time ? \`<p><strong>Time:</strong> \${checkpoint.Time}</p>\` : ''}
+            \${checkpoint.Location ? \`<p><strong>Location:</strong> \${checkpoint.Location}</p>\` : ''}
           </div>
         \`;
         
-        marker.bindPopup(popupContent);
+        const popup = new mapboxgl.Popup({ offset: 25 })
+          .setHTML(popupContent);
+        
+        marker.setPopup(popup);
         
         // Handle marker click
-        marker.on('click', function() {
+        marker.getElement().addEventListener('click', function() {
           if (window.ReactNativeWebView) {
             window.ReactNativeWebView.postMessage(JSON.stringify({
               type: 'markerClick',
@@ -254,18 +268,24 @@ function generateLeafletHTML(
             }));
           }
         });
-        
-        markersMap.set(checkpoint.id, marker);
       }
     }
-    
-    // Add markers after map is ready
-    addMarkers();
-    
+
+    // Wait for map to load before adding markers
+    map.on('load', function() {
+      addMarkers();
+      
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'mapReady'
+        }));
+      }
+    });
+
     // Handle map events
     map.on('moveend', function() {
-      var center = map.getCenter();
-      var zoom = map.getZoom();
+      const center = map.getCenter();
+      const zoom = map.getZoom();
       if (window.ReactNativeWebView) {
         window.ReactNativeWebView.postMessage(JSON.stringify({
           type: 'mapMove',
@@ -275,13 +295,6 @@ function generateLeafletHTML(
         }));
       }
     });
-
-    // Ready
-    if (window.ReactNativeWebView) {
-      window.ReactNativeWebView.postMessage(JSON.stringify({
-        type: 'mapReady'
-      }));
-    }
   </script>
 </body>
 </html>
@@ -305,105 +318,201 @@ export function MapViewComponent({
   zoomEnabled = true,
   zoomControlEnabled = true,
 }: MapViewComponentProps) {
-  const insets = useSafeAreaInsets();
   const [isLoading, setIsLoading] = useState(true);
-  const [leafletLoaded, setLeafletLoaded] = useState(false);
+  const [mapboxLoaded, setMapboxLoaded] = useState(false);
   const webViewRef = useRef<any>(null);
+  const mapRef = useRef<any>(null);
+  const colorScheme = useColorScheme();
+  const darkMode = colorScheme === 'dark';
+  const apiKey = getMapboxApiKey();
 
-  // Less zoom by default (was 13, now 10 for wider view)
-  const zoom = Math.max(10, Math.round(13 - Math.log2(initialRegion.latitudeDelta)) - 3);
-  const darkMode = true; // Always use dark mode
+  // Calculate zoom from latitudeDelta
+  const zoom = Math.max(6, Math.round(13 - Math.log2(initialRegion.latitudeDelta)));
 
-  // For web, use Leaflet directly
+  // Initialize Mapbox access token for native
+  useEffect(() => {
+    if (Platform.OS !== 'web' && setAccessToken && apiKey) {
+      setAccessToken(apiKey);
+    }
+  }, [apiKey]);
+
+  // For web platform
   if (Platform.OS === 'web') {
     useEffect(() => {
-      // Load Leaflet CSS and JS dynamically
-      if (typeof document !== 'undefined') {
-        // Load Leaflet CSS
-        if (!document.querySelector('link[href*="leaflet"]')) {
+      if (typeof window !== 'undefined' && apiKey) {
+        // Load Mapbox GL JS dynamically
+        if (!document.querySelector('script[src*="mapbox-gl"]')) {
+          // Load CSS
           const cssLink = document.createElement('link');
           cssLink.rel = 'stylesheet';
-          cssLink.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-          cssLink.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
-          cssLink.crossOrigin = '';
+          cssLink.href = 'https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css';
           document.head.appendChild(cssLink);
-        }
 
-        // Load Leaflet JS
-        if (!document.querySelector('script[src*="leaflet"]')) {
+          // Load JS
           const script = document.createElement('script');
-          script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-          script.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
-          script.crossOrigin = '';
-          script.onload = () => setLeafletLoaded(true);
+          script.src = 'https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js';
+          script.onload = () => {
+            (window as any).mapboxgl.accessToken = apiKey;
+            setMapboxLoaded(true);
+          };
           document.head.appendChild(script);
         } else {
-          setLeafletLoaded(true);
+          if ((window as any).mapboxgl) {
+            (window as any).mapboxgl.accessToken = apiKey;
+            setMapboxLoaded(true);
+          }
         }
       }
-    }, []);
+    }, [apiKey]);
 
     useEffect(() => {
-      if (leafletLoaded && typeof window !== 'undefined' && (window as any).L) {
-        const L = (window as any).L;
-        const mapId = 'leaflet-map-' + Date.now();
+      if (mapboxLoaded && typeof window !== 'undefined' && (window as any).mapboxgl && apiKey) {
+        const mapboxgl = (window as any).mapboxgl;
+        const mapId = 'mapbox-map-' + Date.now();
         
-        // Create map container
-        const container = document.getElementById('leaflet-map-container');
+        const container = document.getElementById('mapbox-map-container');
         if (container) {
           container.innerHTML = `<div id="${mapId}" style="width: 100%; height: 100%;"></div>`;
           
-          const map = L.map(mapId, {
-            zoomControl: true,
-            attributionControl: true,
-            scrollWheelZoom: true,
-            doubleClickZoom: true,
-          }).setView([initialRegion.latitude, initialRegion.longitude], Math.max(10, zoom));
+          const mapStyle = darkMode
+            ? 'mapbox://styles/mapbox/dark-v11'
+            : 'mapbox://styles/mapbox/light-v11';
           
-          // Use CartoDB dark matter for dark mode
-          L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-            subdomains: 'abcd',
-            maxZoom: 19,
-          }).addTo(map);
+          const map = new mapboxgl.Map({
+            container: mapId,
+            style: mapStyle,
+            center: [initialRegion.longitude, initialRegion.latitude],
+            zoom: zoom,
+            pitch: 0,
+            bearing: 0,
+          });
 
-          // Dark mode styles
-          const style = document.createElement('style');
-          style.textContent = `
-            .leaflet-container {
-              background: #1a1a1a !important;
-            }
-            .leaflet-control-zoom a {
-              background-color: #2d2d2d !important;
-              color: #ffffff !important;
-              border: 1px solid #444 !important;
-            }
-            .leaflet-control-zoom a:hover {
-              background-color: #3d3d3d !important;
-            }
-            .leaflet-control-attribution {
-              background-color: rgba(0, 0, 0, 0.7) !important;
-              color: #ccc !important;
-            }
-          `;
-          document.head.appendChild(style);
+          mapRef.current = map;
 
-          setIsLoading(false);
+          // Add markers when map loads
+          map.on('load', async () => {
+            const DEFAULT_CENTER = [initialRegion.latitude, initialRegion.longitude];
+            
+            // Helper functions
+            function parseLocalDate(dateString: string) {
+              if (!dateString) return null;
+              const [year, month, day] = dateString.split('-').map(Number);
+              return new Date(year, month - 1, day);
+            }
+            
+            function isToday(dateString: string) {
+              if (!dateString) return false;
+              const checkpointDate = parseLocalDate(dateString);
+              const today = new Date();
+              return checkpointDate?.toDateString() === today.toDateString();
+            }
+
+            // Geocode and add markers
+            for (const checkpoint of checkpoints) {
+              let coords = DEFAULT_CENTER;
+              
+              if (checkpoint.City) {
+                try {
+                  const state = checkpoint.State || 'California';
+                  const query = `${checkpoint.City}, ${state}, USA`;
+                  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${apiKey}&limit=1`;
+                  const response = await fetch(url);
+                  if (response.ok) {
+                    const data = await response.json();
+                    if (data?.features?.length > 0) {
+                      const [lng, lat] = data.features[0].center;
+                      coords = [lat, lng];
+                    }
+                  }
+                } catch (error) {
+                  console.error('Geocoding error:', error);
+                }
+              }
+
+              const isTodayCheckpoint = isToday(checkpoint.Date);
+              
+              // Create marker element
+              const el = document.createElement('div');
+              el.className = 'dui-marker' + (isTodayCheckpoint ? ' today' : '');
+              el.style.cssText = `
+                width: 40px;
+                height: 40px;
+                border-radius: 50%;
+                background-color: ${isTodayCheckpoint ? '#FF6B35' : '#FF3B30'};
+                border: 3px solid #FFFFFF;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-weight: bold;
+                color: white;
+                font-size: 18px;
+                cursor: pointer;
+              `;
+              el.textContent = '⚠';
+
+              // Create marker
+              const marker = new mapboxgl.Marker(el)
+                .setLngLat([coords[1], coords[0]])
+                .addTo(map);
+
+              // Popup content
+              const popupContent = `
+                <div style="padding: 8px; min-width: 150px;">
+                  <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600;">${checkpoint.City || 'Unknown City'}</h3>
+                  <p style="margin: 4px 0; font-size: 14px;"><strong>County:</strong> ${checkpoint.County || 'N/A'}</p>
+                  <p style="margin: 4px 0; font-size: 14px;"><strong>State:</strong> ${checkpoint.State || 'N/A'}</p>
+                  <p style="margin: 4px 0; font-size: 14px;"><strong>Date:</strong> ${checkpoint.Date || 'Date TBD'}</p>
+                  ${checkpoint.Time ? `<p style="margin: 4px 0; font-size: 14px;"><strong>Time:</strong> ${checkpoint.Time}</p>` : ''}
+                  ${checkpoint.Location ? `<p style="margin: 4px 0; font-size: 14px;"><strong>Location:</strong> ${checkpoint.Location}</p>` : ''}
+                </div>
+              `;
+
+              const popup = new mapboxgl.Popup({ offset: 25 })
+                .setHTML(popupContent);
+
+              marker.setPopup(popup);
+
+              // Handle marker click
+              el.addEventListener('click', () => {
+                if (onMarkerClick) {
+                  onMarkerClick(checkpoint);
+                }
+              });
+            }
+
+            setIsLoading(false);
+          });
+
+          // Update style when dark mode changes
+          const updateStyle = () => {
+            const newStyle = darkMode
+              ? 'mapbox://styles/mapbox/dark-v11'
+              : 'mapbox://styles/mapbox/light-v11';
+            map.setStyle(newStyle);
+          };
+
+          return () => {
+            map.remove();
+          };
         }
       }
-    }, [leafletLoaded, initialRegion, zoom]);
+    }, [mapboxLoaded, initialRegion, zoom, checkpoints, darkMode, apiKey, onMarkerClick]);
 
-    // For web, we need to use HTML elements
-    const LeafletContainer = Platform.OS === 'web' && typeof window !== 'undefined' 
+    const MapboxContainer = Platform.OS === 'web' && typeof window !== 'undefined'
       ? ({ children, ...props }: any) => {
           const React = require('react');
-          return React.createElement('div', { id: 'leaflet-map-container', style: { width: '100%', height: '100%' }, ...props }, children);
+          return React.createElement('div', {
+            id: 'mapbox-map-container',
+            style: { width: '100%', height: '100%' },
+            ...props
+          }, children);
         }
       : View;
 
     return (
       <View style={styles.container}>
-        <LeafletContainer />
+        <MapboxContainer />
         {isLoading && (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color="#FF6B35" />
@@ -413,15 +522,11 @@ export function MapViewComponent({
     );
   }
 
-  // For iOS/Android, use WebView with Leaflet
+  // For iOS/Android, use WebView with Mapbox GL JS
   if (!WebView) {
     return (
       <View style={[styles.container, styles.placeholder]}>
         <ActivityIndicator size="large" color="#FF6B35" />
-        <Text style={styles.placeholderText}>
-          Installing WebView library...{'\n'}
-          Please run: npm install react-native-webview
-        </Text>
       </View>
     );
   }
@@ -432,32 +537,42 @@ export function MapViewComponent({
       if (data.type === 'mapReady') {
         setIsLoading(false);
       }
+      if (data.type === 'markerClick' && onMarkerClick) {
+        const checkpoint = checkpoints.find(cp => cp.id === data.checkpointId);
+        if (checkpoint) {
+          onMarkerClick(checkpoint);
+        }
+      }
     } catch (e) {
       // Ignore parse errors
     }
   };
 
+  if (!apiKey) {
+    return (
+      <View style={[styles.container, styles.placeholder]}>
+        <ActivityIndicator size="large" color="#FF6B35" />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <WebView
         ref={webViewRef}
-        source={{ html: generateLeafletHTML(initialRegion.latitude, initialRegion.longitude, zoom, checkpoints, onMarkerClick, darkMode) }}
-        style={styles.map}
-        onMessage={(event: any) => {
-          handleMessage(event);
-          // Handle marker clicks
-          try {
-            const data = JSON.parse(event.nativeEvent.data);
-            if (data.type === 'markerClick' && onMarkerClick) {
-              const checkpoint = checkpoints.find(cp => cp.id === data.checkpointId);
-              if (checkpoint) {
-                onMarkerClick(checkpoint);
-              }
-            }
-          } catch (e) {
-            // Ignore parse errors
-          }
+        source={{
+          html: generateMapboxHTML(
+            initialRegion.latitude,
+            initialRegion.longitude,
+            zoom,
+            checkpoints,
+            onMarkerClick,
+            darkMode,
+            apiKey
+          ),
         }}
+        style={styles.map}
+        onMessage={handleMessage}
         javaScriptEnabled={true}
         domStorageEnabled={true}
         startInLoadingState={true}
@@ -491,12 +606,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#1a3a5c',
-  },
-  placeholderText: {
-    color: '#FFFFFF',
-    marginTop: 16,
-    textAlign: 'center',
-    fontSize: 14,
   },
   loadingOverlay: {
     position: 'absolute',

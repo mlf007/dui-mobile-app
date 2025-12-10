@@ -10,7 +10,24 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npm install
    ```
 
-2. Start the app
+2. Set up Mapbox API Key
+
+   Create a `.env` file in the root directory (or add to your existing `.env`):
+   
+   ```bash
+   EXPO_PUBLIC_MAPBOX_API_KEY=your-mapbox-api-key-here
+   ```
+   
+   **Get your Mapbox API key:**
+   1. Go to https://account.mapbox.com/
+   2. Sign up or log in
+   3. Go to your account page
+   4. Copy your default public token (or create a new one)
+   5. Add it to your `.env` file as `EXPO_PUBLIC_MAPBOX_API_KEY`
+   
+   Alternatively, you can add it to `app.json` in the `extra.mapboxApiKey` field.
+
+3. Start the app
 
    ```bash
    npx expo start

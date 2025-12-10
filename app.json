@@ -39,7 +39,13 @@
           }
         }
       ],
-      "expo-maps"
+      "expo-maps",
+      [
+        "@rnmapbox/maps",
+        {
+          "RNMapboxMapsDownloadToken": ""
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
@@ -47,7 +53,8 @@
     },
     "extra": {
       "supabaseUrl": "",
-      "supabaseAnonKey": ""
+      "supabaseAnonKey": "",
+      "mapboxApiKey": ""
     }
   }
 }

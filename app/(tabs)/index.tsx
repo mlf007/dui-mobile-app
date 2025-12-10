@@ -27,10 +27,10 @@ export default function HomeScreen() {
       <View style={styles.mapContainer}>
         <MapViewComponent
           initialRegion={{
-            latitude: 37.78825,
-            longitude: -122.4324,
-            latitudeDelta: 0.0922,
-            longitudeDelta: 0.0421,
+            latitude: 36.7783,
+            longitude: -119.4179,
+            latitudeDelta: 5.0,
+            longitudeDelta: 5.0,
           }}
           checkpoints={checkpoints}
           onMarkerClick={handleMarkerClick}
