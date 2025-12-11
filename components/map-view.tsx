@@ -85,17 +85,19 @@ function generateMapboxHTML(
   apiKey: string = ''
 ): string {
   const checkpointsJson = JSON.stringify(checkpoints);
+  // Use HTTPS URLs for Android compatibility instead of mapbox:// protocol
   const mapboxStyle = darkMode
-    ? 'mapbox://styles/mapbox/dark-v11'
-    : 'mapbox://styles/mapbox/light-v11';
+    ? 'https://api.mapbox.com/styles/v1/mapbox/dark-v11'
+    : 'https://api.mapbox.com/styles/v1/mapbox/light-v11';
 
   return `
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
   <style>
     * {
       margin: 0;
@@ -158,15 +160,55 @@ function generateMapboxHTML(
 <body>
   <div id="map"></div>
   <script>
-    mapboxgl.accessToken = '${apiKey}';
+    // Wait for Mapbox GL JS to load
+    (function() {
+      function initMap() {
+        if (!window.mapboxgl) {
+          console.error('Mapbox GL JS not available');
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'mapError',
+              error: 'Mapbox GL JS failed to load'
+            }));
+          }
+          return;
+        }
+        
+        try {
+          mapboxgl.accessToken = '${apiKey}';
     
     const map = new mapboxgl.Map({
       container: 'map',
       style: '${mapboxStyle}',
       center: [${longitude}, ${latitude}],
       zoom: ${zoom},
-      pitch: 0,
-      bearing: 0
+      pitch: 60,
+      bearing: -17.6,
+      antialias: true,
+      transformRequest: function(url, resourceType) {
+        // Ensure all requests include the access token for Android
+        if (resourceType === 'Style' && !url.includes('access_token')) {
+          return {
+            url: url + (url.includes('?') ? '&' : '?') + 'access_token=' + mapboxgl.accessToken
+          };
+        }
+        return { url: url };
+      }
+    });
+    
+    // Enable 3D terrain and buildings
+    map.on('load', function() {
+      try {
+        map.addSource('mapbox-dem', {
+          type: 'raster-dem',
+          url: 'https://api.mapbox.com/v4/mapbox.mapbox-terrain-dem-v1',
+          tileSize: 512,
+          maxzoom: 14
+        });
+        map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.5 });
+      } catch (e) {
+        console.log('Terrain not available:', e);
+      }
     });
 
     const checkpoints = ${checkpointsJson};
@@ -271,9 +313,9 @@ function generateMapboxHTML(
       }
     }
 
-    // Wait for map to load before adding markers
+    // Wait for map to load
     map.on('load', function() {
-      addMarkers();
+      // Markers removed for now
       
       if (window.ReactNativeWebView) {
         window.ReactNativeWebView.postMessage(JSON.stringify({
@@ -281,6 +323,26 @@ function generateMapboxHTML(
         }));
       }
     });
+
+    // Error handling
+    map.on('error', function(e) {
+      console.error('Mapbox error:', e);
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'mapError',
+          error: e.error ? e.error.message : 'Unknown error'
+        }));
+      }
+    });
+
+    // Fallback: if map doesn't load after 5 seconds, try to notify
+    setTimeout(function() {
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'mapReady'
+        }));
+      }
+    }, 5000);
 
     // Handle map events
     map.on('moveend', function() {
@@ -295,6 +357,44 @@ function generateMapboxHTML(
         }));
       }
     });
+        } catch (error) {
+          console.error('Error initializing map:', error);
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'mapError',
+              error: 'Error initializing map: ' + (error.message || error)
+            }));
+          }
+        }
+      }
+      
+      // Try to initialize immediately if script is already loaded
+      if (window.mapboxgl) {
+        initMap();
+      } else {
+        // Wait for script to load
+        var checkInterval = setInterval(function() {
+          if (window.mapboxgl) {
+            clearInterval(checkInterval);
+            initMap();
+          }
+        }, 100);
+        
+        // Timeout after 10 seconds
+        setTimeout(function() {
+          clearInterval(checkInterval);
+          if (!window.mapboxgl) {
+            console.error('Mapbox GL JS failed to load within timeout');
+            if (window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'mapError',
+                error: 'Mapbox GL JS failed to load within timeout'
+              }));
+            }
+          }
+        }, 10000);
+      }
+    })();
   </script>
 </body>
 </html>
@@ -375,120 +475,30 @@ export function MapViewComponent({
           container.innerHTML = `<div id="${mapId}" style="width: 100%; height: 100%;"></div>`;
           
           const mapStyle = darkMode
-            ? 'mapbox://styles/mapbox/dark-v11'
-            : 'mapbox://styles/mapbox/light-v11';
+            ? 'https://api.mapbox.com/styles/v1/mapbox/dark-v11'
+            : 'https://api.mapbox.com/styles/v1/mapbox/light-v11';
           
           const map = new mapboxgl.Map({
             container: mapId,
             style: mapStyle,
             center: [initialRegion.longitude, initialRegion.latitude],
             zoom: zoom,
-            pitch: 0,
-            bearing: 0,
+            pitch: 60,
+            bearing: -17.6,
           });
 
           mapRef.current = map;
 
-          // Add markers when map loads
-          map.on('load', async () => {
-            const DEFAULT_CENTER = [initialRegion.latitude, initialRegion.longitude];
-            
-            // Helper functions
-            function parseLocalDate(dateString: string) {
-              if (!dateString) return null;
-              const [year, month, day] = dateString.split('-').map(Number);
-              return new Date(year, month - 1, day);
-            }
-            
-            function isToday(dateString: string) {
-              if (!dateString) return false;
-              const checkpointDate = parseLocalDate(dateString);
-              const today = new Date();
-              return checkpointDate?.toDateString() === today.toDateString();
-            }
-
-            // Geocode and add markers
-            for (const checkpoint of checkpoints) {
-              let coords = DEFAULT_CENTER;
-              
-              if (checkpoint.City) {
-                try {
-                  const state = checkpoint.State || 'California';
-                  const query = `${checkpoint.City}, ${state}, USA`;
-                  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${apiKey}&limit=1`;
-                  const response = await fetch(url);
-                  if (response.ok) {
-                    const data = await response.json();
-                    if (data?.features?.length > 0) {
-                      const [lng, lat] = data.features[0].center;
-                      coords = [lat, lng];
-                    }
-                  }
-                } catch (error) {
-                  console.error('Geocoding error:', error);
-                }
-              }
-
-              const isTodayCheckpoint = isToday(checkpoint.Date);
-              
-              // Create marker element
-              const el = document.createElement('div');
-              el.className = 'dui-marker' + (isTodayCheckpoint ? ' today' : '');
-              el.style.cssText = `
-                width: 40px;
-                height: 40px;
-                border-radius: 50%;
-                background-color: ${isTodayCheckpoint ? '#FF6B35' : '#FF3B30'};
-                border: 3px solid #FFFFFF;
-                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-weight: bold;
-                color: white;
-                font-size: 18px;
-                cursor: pointer;
-              `;
-              el.textContent = '⚠';
-
-              // Create marker
-              const marker = new mapboxgl.Marker(el)
-                .setLngLat([coords[1], coords[0]])
-                .addTo(map);
-
-              // Popup content
-              const popupContent = `
-                <div style="padding: 8px; min-width: 150px;">
-                  <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600;">${checkpoint.City || 'Unknown City'}</h3>
-                  <p style="margin: 4px 0; font-size: 14px;"><strong>County:</strong> ${checkpoint.County || 'N/A'}</p>
-                  <p style="margin: 4px 0; font-size: 14px;"><strong>State:</strong> ${checkpoint.State || 'N/A'}</p>
-                  <p style="margin: 4px 0; font-size: 14px;"><strong>Date:</strong> ${checkpoint.Date || 'Date TBD'}</p>
-                  ${checkpoint.Time ? `<p style="margin: 4px 0; font-size: 14px;"><strong>Time:</strong> ${checkpoint.Time}</p>` : ''}
-                  ${checkpoint.Location ? `<p style="margin: 4px 0; font-size: 14px;"><strong>Location:</strong> ${checkpoint.Location}</p>` : ''}
-                </div>
-              `;
-
-              const popup = new mapboxgl.Popup({ offset: 25 })
-                .setHTML(popupContent);
-
-              marker.setPopup(popup);
-
-              // Handle marker click
-              el.addEventListener('click', () => {
-                if (onMarkerClick) {
-                  onMarkerClick(checkpoint);
-                }
-              });
-            }
-
+          // Map loaded - markers removed for now
+          map.on('load', () => {
             setIsLoading(false);
           });
 
           // Update style when dark mode changes
           const updateStyle = () => {
             const newStyle = darkMode
-              ? 'mapbox://styles/mapbox/dark-v11'
-              : 'mapbox://styles/mapbox/light-v11';
+              ? 'https://api.mapbox.com/styles/v1/mapbox/dark-v11'
+              : 'https://api.mapbox.com/styles/v1/mapbox/light-v11';
             map.setStyle(newStyle);
           };
 
@@ -537,6 +547,11 @@ export function MapViewComponent({
       if (data.type === 'mapReady') {
         setIsLoading(false);
       }
+      if (data.type === 'mapError') {
+        console.error('Mapbox error from WebView:', data.error);
+        // Still hide loading after error
+        setTimeout(() => setIsLoading(false), 1000);
+      }
       if (data.type === 'markerClick' && onMarkerClick) {
         const checkpoint = checkpoints.find(cp => cp.id === data.checkpointId);
         if (checkpoint) {
@@ -545,6 +560,7 @@ export function MapViewComponent({
       }
     } catch (e) {
       // Ignore parse errors
+      console.warn('Error parsing WebView message:', e);
     }
   };
 
@@ -570,6 +586,7 @@ export function MapViewComponent({
             darkMode,
             apiKey
           ),
+          baseUrl: Platform.OS === 'android' ? 'https://api.mapbox.com/' : 'https://api.mapbox.com',
         }}
         style={styles.map}
         onMessage={handleMessage}
@@ -581,6 +598,30 @@ export function MapViewComponent({
         showsVerticalScrollIndicator={false}
         scrollEnabled={scrollEnabled}
         bounces={false}
+        // Android-specific props
+        mixedContentMode="always"
+        originWhitelist={['*']}
+        allowFileAccess={true}
+        allowUniversalAccessFromFile={true}
+        androidHardwareAccelerationDisabled={false}
+        androidLayerType="hardware"
+        // Error handling
+        onError={(syntheticEvent: any) => {
+          const { nativeEvent } = syntheticEvent;
+          console.warn('WebView error on Android:', nativeEvent);
+        }}
+        onHttpError={(syntheticEvent: any) => {
+          const { nativeEvent } = syntheticEvent;
+          console.warn('WebView HTTP error on Android:', nativeEvent);
+        }}
+        onLoadEnd={() => {
+          // Additional check for Android
+          if (Platform.OS === 'android') {
+            setTimeout(() => {
+              setIsLoading(false);
+            }, 500);
+          }
+        }}
       />
       {isLoading && (
         <View style={styles.loadingOverlay}>

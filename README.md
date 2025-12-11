@@ -36,9 +36,11 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
 In the output, you'll find options to open the app in a
 
 - [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
+- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/) - See [ANDROID_SETUP.md](./ANDROID_SETUP.md) for setup
 - [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+- [Expo Go](https://expo.dev/go) - **Easiest way to test on Android!** Just install Expo Go app and scan QR code
+
+**Note:** If you see Android SDK errors, you can use Expo Go app on your phone instead of setting up the emulator. See [ANDROID_SETUP.md](./ANDROID_SETUP.md) for details.
 
 You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
