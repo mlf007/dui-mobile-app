@@ -22,9 +22,12 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "INTERNET",
         "ACCESS_NETWORK_STATE"
       ],
-      "usesCleartextTraffic": false
+      "usesCleartextTraffic": false,
+      "package": "com.anonymous.duimobileapp"
     },
     "web": {
       "output": "static",
