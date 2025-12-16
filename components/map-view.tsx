@@ -3,13 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
 
 type Region = {
-    latitude: number;
-    longitude: number;
-};
-
-const UNITED_STATES_CENTER: Region = {
-  latitude: 39.8283,
-  longitude: -98.5795,
+  latitude: number;
+  longitude: number;
 };
 
 const SAN_FRANCISCO_CENTER: Region = {
@@ -32,36 +27,19 @@ function getMapboxApiKey(): string {
   );
 }
 
+// Lazily require WebView only on native
+let NativeWebView: any = null;
+if (Platform.OS !== 'web') {
+  try {
+    NativeWebView = require('react-native-webview').WebView;
+  } catch {
+    NativeWebView = null;
+  }
+}
+
 export function MapViewComponent() {
   const apiKey = getMapboxApiKey();
   const isWeb = Platform.OS === 'web';
-  const isExpoGo = Constants.appOwnership === 'expo';
-  const [mapbox, setMapbox] = useState<any>(null);
-  const [nativeError, setNativeError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (isWeb) return;
-    if (isExpoGo) {
-      setNativeError('Mapbox requires a custom dev build (not Expo Go).');
-          return;
-        }
-    let cancelled = false;
-    (async () => {
-      try {
-        const mod = await import('@rnmapbox/maps');
-        if (!cancelled) {
-          setMapbox(mod);
-        }
-      } catch (err: any) {
-        if (!cancelled) {
-          setNativeError(err?.message || 'Mapbox native module unavailable.');
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isWeb, isExpoGo]);
 
   if (!apiKey) {
     return (
@@ -69,77 +47,37 @@ export function MapViewComponent() {
         <Text style={styles.message}>Mapbox API key missing.</Text>
       </View>
     );
-        }
+  }
 
   if (isWeb) {
     return <WebMap apiKey={apiKey} />;
-      }
+  }
 
-  if (isExpoGo) {
+  if (!NativeWebView) {
     return (
       <View style={[styles.container, styles.center]}>
-        <Text style={styles.message}>
-          Mapbox needs a dev build. Run `npx expo run:ios` or `npx expo run:android`
-          and open with Expo Dev Client.
-        </Text>
+        <ActivityIndicator size="large" color="#FF6B35" />
+        <Text style={styles.message}>WebView not available.</Text>
       </View>
     );
   }
 
-  if (nativeError) {
-    return (
-      <View style={[styles.container, styles.center]}>
-        <Text style={styles.message}>Mapbox error: {nativeError}</Text>
-      </View>
-    );
-    }
-    
-  if (!mapbox) {
-    return (
-      <View style={[styles.container, styles.center]}>
-        <ActivityIndicator size="large" color="#FF6B35" />
-        <Text style={styles.message}>Loading Mapbox…</Text>
-      </View>
-    );
-    }
-    
-  mapbox.setAccessToken(apiKey);
+  const html = generateMobileHTML(apiKey);
 
   return (
     <View style={styles.container}>
-      <mapbox.MapView
+      <NativeWebView
+        originWhitelist={['*']}
+        source={{ html, baseUrl: 'https://api.mapbox.com' }}
         style={StyleSheet.absoluteFill}
-        styleURL={STYLE_URL}
-        rotateEnabled
-        scrollEnabled
-        zoomEnabled
-        pitchEnabled
-        logoEnabled={false}
-        compassEnabled
-      >
-        <mapbox.Camera
-          centerCoordinate={[SAN_FRANCISCO_CENTER.longitude, SAN_FRANCISCO_CENTER.latitude]}
-          zoomLevel={INITIAL_ZOOM}
-          minZoomLevel={MIN_ZOOM}
-          maxZoomLevel={MAX_ZOOM}
-          pitch={PITCH}
-          heading={BEARING}
-        />
-
-        {/* 3D buildings */}
-        <mapbox.FillExtrusionLayer
-          id="3d-buildings"
-          sourceID="composite"
-          sourceLayerID="building"
-          minZoomLevel={15}
-          style={{
-            fillExtrusionColor: '#9bb1ff',
-            fillExtrusionOpacity: 0.9,
-            fillExtrusionHeight: ['get', 'height'],
-            fillExtrusionBase: ['get', 'min_height'],
-          }}
-        />
-      </mapbox.MapView>
+        javaScriptEnabled
+        domStorageEnabled
+        startInLoadingState
+        mixedContentMode="always"
+        onError={(e: any) => {
+          console.warn('WebView Mapbox error', e?.nativeEvent);
+        }}
+      />
     </View>
   );
 }
@@ -177,7 +115,6 @@ function WebMap({ apiKey }: { apiKey: string }) {
         map.on('load', () => {
           if (cancelled) return;
 
-          // Insert 3D buildings layer above labels
           const layers = map.getStyle().layers;
           const labelLayerId =
             layers?.find((layer: any) => layer.type === 'symbol' && layer.layout?.['text-field'])
@@ -213,25 +150,25 @@ function WebMap({ apiKey }: { apiKey: string }) {
       }
     }
 
-            initMap();
+    initMap();
 
-          return () => {
+    return () => {
       cancelled = true;
       if (map) {
-            map.remove();
+        map.remove();
       }
-          };
+    };
   }, [apiKey]);
 
-    return (
-      <View style={styles.container}>
+  return (
+    <View style={styles.container}>
       <View ref={containerRef} style={styles.webMap} />
       {loading && (
         <View style={styles.overlay}>
-            <ActivityIndicator size="large" color="#FF6B35" />
+          <ActivityIndicator size="large" color="#FF6B35" />
           <Text style={styles.message}>Loading map…</Text>
-          </View>
-        )}
+        </View>
+      )}
       {error && (
         <View style={styles.overlay}>
           <Text style={styles.message}>Map error: {error}</Text>
@@ -239,6 +176,102 @@ function WebMap({ apiKey }: { apiKey: string }) {
       )}
     </View>
   );
+}
+
+function generateMobileHTML(apiKey: string): string {
+  return `
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet" />
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+    <style>
+      html, body, #map {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <script>
+      (function () {
+        function init() {
+          if (!window.mapboxgl) return;
+
+          mapboxgl.accessToken = '${apiKey}';
+
+          var map = new mapboxgl.Map({
+            container: 'map',
+            style: '${STYLE_URL}',
+            center: [${SAN_FRANCISCO_CENTER.longitude}, ${SAN_FRANCISCO_CENTER.latitude}],
+            zoom: ${INITIAL_ZOOM},
+            minZoom: ${MIN_ZOOM},
+            maxZoom: ${MAX_ZOOM},
+            pitch: ${PITCH},
+            bearing: ${BEARING},
+            antialias: true
+          });
+
+          map.on('load', function () {
+            var layers = map.getStyle().layers;
+            var labelLayerId = null;
+            for (var i = 0; i < layers.length; i++) {
+              var layer = layers[i];
+              if (layer.type === 'symbol' && layer.layout && layer.layout['text-field']) {
+                labelLayerId = layer.id;
+                break;
+              }
+            }
+
+            if (!map.getLayer('3d-buildings')) {
+              map.addLayer(
+                {
+                  id: '3d-buildings',
+                  source: 'composite',
+                  'source-layer': 'building',
+                  filter: ['==', 'extrude', 'true'],
+                  type: 'fill-extrusion',
+                  minzoom: 15,
+                  paint: {
+                    'fill-extrusion-color': '#9bb1ff',
+                    'fill-extrusion-height': ['get', 'height'],
+                    'fill-extrusion-base': ['get', 'min_height'],
+                    'fill-extrusion-opacity': 0.9
+                  }
+                },
+                labelLayerId || undefined
+              );
+            }
+          });
+        }
+
+        if (window.mapboxgl) {
+          init();
+        } else {
+          var interval = setInterval(function () {
+            if (window.mapboxgl) {
+              clearInterval(interval);
+              init();
+            }
+          }, 100);
+          setTimeout(function () {
+            clearInterval(interval);
+          }, 10000);
+        }
+      })();
+    </script>
+  </body>
+</html>
+`;
 }
 
 const styles = StyleSheet.create({
