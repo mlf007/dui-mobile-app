@@ -47,13 +47,7 @@
           }
         }
       ],
-      "expo-maps",
-      [
-        "@rnmapbox/maps",
-        {
-          "RNMapboxMapsDownloadToken": ""
-        }
-      ]
+      "expo-maps"
     ],
     "experiments": {
       "typedRoutes": true,
