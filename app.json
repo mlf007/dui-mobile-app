@@ -62,7 +62,11 @@
     "extra": {
       "supabaseUrl": "",
       "supabaseAnonKey": "",
-      "mapboxApiKey": ""
+      "mapboxApiKey": "",
+      "router": {},
+      "eas": {
+        "projectId": "84f1fe80-d92e-435f-b787-640babc90177"
+      }
     }
   }
 }
