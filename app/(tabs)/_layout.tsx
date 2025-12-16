@@ -11,16 +11,17 @@ export default function TabLayout() {
         headerShown: false,
         tabBarShowLabel: false,
       }}>
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: 'Menu',
-        }}
-      />
+      {/* Make Home (map) the first / default tab */}
       <Tabs.Screen
         name="index"
         options={{
           title: 'Home',
+        }}
+      />
+      <Tabs.Screen
+        name="explore"
+        options={{
+          title: 'Menu',
         }}
       />
       <Tabs.Screen
