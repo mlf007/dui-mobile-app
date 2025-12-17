@@ -1,7 +1,7 @@
 import type { Checkpoint } from '@/lib/types/checkpoint';
 import { formatDate, getMarkerColor, isToday } from '@/lib/utils/checkpoint-utils';
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface CheckpointListProps {
   checkpoints: Checkpoint[];
@@ -52,7 +52,7 @@ export function CheckpointList({
   }
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <View style={styles.container}>
       <View style={styles.listContainer}>
         {filteredCheckpoints.map((checkpoint) => {
           const markerColor = getMarkerColor(checkpoint);
@@ -120,7 +120,7 @@ export function CheckpointList({
           );
         })}
       </View>
-    </ScrollView>
+    </View>
   );
 }
 
@@ -166,7 +166,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 12,
     marginBottom: 8,
-    marginHorizontal: 4,
     borderWidth: 1,
     borderColor: '#E5E7EB',
     shadowColor: '#000',

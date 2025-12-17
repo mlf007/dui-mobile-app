@@ -1,15 +1,15 @@
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-  runOnJS,
-} from 'react-native-reanimated';
 import { useEffect } from 'react';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated, {
+    runOnJS,
+    useAnimatedStyle,
+    useSharedValue,
+    withTiming,
+} from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface BottomDrawerProps {
   isOpen: boolean;
@@ -29,8 +29,14 @@ export function BottomDrawer({ isOpen, onClose, children }: BottomDrawerProps) {
 
   useEffect(() => {
     if (isOpen) {
-      translateY.value = withTiming(0, { duration: 300 });
-      opacity.value = withTiming(1, { duration: 300 });
+      // Ensure drawer opens from bottom
+      translateY.value = 1000;
+      opacity.value = 0;
+      // Small delay to ensure state is set
+      requestAnimationFrame(() => {
+        translateY.value = withTiming(0, { duration: 300 });
+        opacity.value = withTiming(1, { duration: 300 });
+      });
     } else {
       translateY.value = withTiming(1000, { duration: 300 });
       opacity.value = withTiming(0, { duration: 200 });
@@ -162,7 +168,6 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingHorizontal: 20,
     paddingTop: 8,
   },
   defaultContent: {

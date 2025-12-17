@@ -5,11 +5,11 @@ import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Linking, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Linking, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
+    useAnimatedStyle,
+    useSharedValue,
+    withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BottomDrawer } from './bottom-drawer';
@@ -35,9 +35,10 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
   };
 
   const handleCenterButton = () => {
-    setIsDrawerOpen(!isDrawerOpen);
+    const newState = !isDrawerOpen;
+    setIsDrawerOpen(newState);
     // Animate icon rotation without bounce
-    rotation.value = withTiming(isDrawerOpen ? 0 : 180, {
+    rotation.value = withTiming(newState ? 180 : 0, {
       duration: 300,
     });
   };
@@ -186,7 +187,11 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
             duration: 300,
           });
         }}>
-        <View style={styles.drawerContent}>
+        <ScrollView 
+          style={styles.drawerScrollView}
+          contentContainerStyle={styles.drawerContent}
+          showsVerticalScrollIndicator={true}
+          nestedScrollEnabled={true}>
           <Text style={styles.drawerTitle}>DUI Checkpoints</Text>
           
           {/* Search Bar */}
@@ -220,7 +225,7 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
             }}
             selectedCheckpoint={selectedCheckpoint}
           />
-        </View>
+        </ScrollView>
       </BottomDrawer>
     </>
   );
@@ -368,16 +373,18 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
   },
-  drawerContent: {
+  drawerScrollView: {
     flex: 1,
+  },
+  drawerContent: {
     paddingTop: 8,
+    paddingBottom: 20,
   },
   drawerTitle: {
     fontSize: 24,
     fontWeight: '700',
     color: '#1F2937',
     marginBottom: 16,
-    paddingHorizontal: 4,
   },
   searchContainer: {
     flexDirection: 'row',
@@ -386,7 +393,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 12,
     marginBottom: 16,
-    marginHorizontal: 4,
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
