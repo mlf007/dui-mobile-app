@@ -3,9 +3,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { MapViewComponent } from '@/components/map-view';
 import { MeehanHeaderImage } from '@/components/meehan-header-image';
+import { useCheckpoints } from '@/hooks/use-checkpoints';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const { checkpoints } = useCheckpoints();
 
   return (
     <View style={styles.container}>
@@ -14,7 +16,7 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.mapContainer}>
-        <MapViewComponent />
+        <MapViewComponent checkpoints={checkpoints} />
       </View>
     </View>
   );

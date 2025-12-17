@@ -1,12 +1,13 @@
 import type { Checkpoint } from '@/lib/types/checkpoint';
-import { formatDate, getMarkerColor, isToday } from '@/lib/utils/checkpoint-utils';
+import { formatDate, getMarkerColor, isPast, isToday, isUpcoming } from '@/lib/utils/checkpoint-utils';
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface CheckpointListProps {
   checkpoints: Checkpoint[];
   loading: boolean;
   searchQuery: string;
+  activeTab: 'upcoming' | 'past';
   onSearchChange: (query: string) => void;
   onCheckpointSelect: (checkpoint: Checkpoint) => void;
   selectedCheckpoint: Checkpoint | null;
@@ -16,12 +17,22 @@ export function CheckpointList({
   checkpoints,
   loading,
   searchQuery,
+  activeTab,
   onSearchChange,
   onCheckpointSelect,
   selectedCheckpoint,
 }: CheckpointListProps) {
-  // Filter checkpoints based on search query
+  // Filter checkpoints based on active tab and search query
   const filteredCheckpoints = checkpoints.filter((cp) => {
+    // Filter by tab (upcoming or past)
+    if (activeTab === 'upcoming' && !isUpcoming(cp.Date)) {
+      return false;
+    }
+    if (activeTab === 'past' && !isPast(cp.Date)) {
+      return false;
+    }
+    
+    // Filter by search query
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
     return (
@@ -41,86 +52,106 @@ export function CheckpointList({
     );
   }
 
+  const renderCheckpointItem = ({ item: checkpoint }: { item: Checkpoint }) => {
+    const markerColor = getMarkerColor(checkpoint);
+    const isSelected = selectedCheckpoint?.id === checkpoint.id;
+    const isTodayCheckpoint = isToday(checkpoint.Date);
+    const isUpcomingCheckpoint = isUpcoming(checkpoint.Date);
+    
+    // Red for upcoming, Blue for past (police colors)
+    const indicatorColor = isUpcomingCheckpoint ? '#FF3B30' : '#007AFF';
+
+    return (
+      <TouchableOpacity
+        style={[
+          styles.checkpointItem,
+          isSelected && styles.checkpointItemSelected,
+        ]}
+        onPress={() => onCheckpointSelect(checkpoint)}
+        activeOpacity={0.7}>
+        {/* Color indicator - Red for upcoming, Blue for past */}
+        <View
+          style={[
+            styles.colorIndicator,
+            { backgroundColor: indicatorColor },
+          ]}
+        />
+
+        {/* Content */}
+        <View style={styles.checkpointContent}>
+          <View style={styles.checkpointHeader}>
+            <Text style={styles.checkpointCity}>
+              {checkpoint.City || 'Unknown City'}
+            </Text>
+            {isTodayCheckpoint && (
+              <View style={styles.todayBadge}>
+                <Text style={styles.todayBadgeText}>TODAY</Text>
+              </View>
+            )}
+          </View>
+
+          <Text style={styles.checkpointCounty}>
+            {checkpoint.County || 'Unknown County'}, {checkpoint.State || 'N/A'}
+          </Text>
+
+          {checkpoint.Location && (
+            <View style={styles.locationRow}>
+              <Ionicons name="location-outline" size={14} color="#6B7280" />
+              <Text style={styles.checkpointLocation}>{checkpoint.Location}</Text>
+            </View>
+          )}
+
+          <View style={styles.dateTimeRow}>
+            <View style={styles.dateTimeItem}>
+              <Ionicons name="calendar-outline" size={14} color="#6B7280" />
+              <Text style={styles.checkpointDate}>{formatDate(checkpoint.Date)}</Text>
+            </View>
+            {checkpoint.Time && (
+              <View style={styles.dateTimeItem}>
+                <Ionicons name="time-outline" size={14} color="#6B7280" />
+                <Text style={styles.checkpointTime}>{checkpoint.Time}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* Arrow */}
+        <Ionicons name="chevron-forward" size={20} color="#9BA1A6" />
+      </TouchableOpacity>
+    );
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#FF6B35" />
+        <Text style={styles.loadingText}>Loading checkpoints...</Text>
+      </View>
+    );
+  }
+
   if (filteredCheckpoints.length === 0) {
     return (
       <View style={styles.emptyContainer}>
         <Ionicons name="alert-circle-outline" size={48} color="#9BA1A6" />
         <Text style={styles.emptyText}>No checkpoints found</Text>
-        <Text style={styles.emptySubtext}>Try adjusting your search</Text>
+        <Text style={styles.emptySubtext}>Try adjusting your search or tab</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.listContainer}>
-        {filteredCheckpoints.map((checkpoint) => {
-          const markerColor = getMarkerColor(checkpoint);
-          const isSelected = selectedCheckpoint?.id === checkpoint.id;
-          const isTodayCheckpoint = isToday(checkpoint.Date);
-
-          return (
-            <TouchableOpacity
-              key={checkpoint.id}
-              style={[
-                styles.checkpointItem,
-                isSelected && styles.checkpointItemSelected,
-              ]}
-              onPress={() => onCheckpointSelect(checkpoint)}
-              activeOpacity={0.7}>
-              {/* Color indicator */}
-              <View
-                style={[
-                  styles.colorIndicator,
-                  { backgroundColor: markerColor === 'red' ? '#FF3B30' : '#007AFF' },
-                ]}
-              />
-
-              {/* Content */}
-              <View style={styles.checkpointContent}>
-                <View style={styles.checkpointHeader}>
-                  <Text style={styles.checkpointCity}>
-                    {checkpoint.City || 'Unknown City'}
-                  </Text>
-                  {isTodayCheckpoint && (
-                    <View style={styles.todayBadge}>
-                      <Text style={styles.todayBadgeText}>TODAY</Text>
-                    </View>
-                  )}
-                </View>
-
-                <Text style={styles.checkpointCounty}>
-                  {checkpoint.County || 'Unknown County'}, {checkpoint.State || 'N/A'}
-                </Text>
-
-                {checkpoint.Location && (
-                  <View style={styles.locationRow}>
-                    <Ionicons name="location-outline" size={14} color="#6B7280" />
-                    <Text style={styles.checkpointLocation}>{checkpoint.Location}</Text>
-                  </View>
-                )}
-
-                <View style={styles.dateTimeRow}>
-                  <View style={styles.dateTimeItem}>
-                    <Ionicons name="calendar-outline" size={14} color="#6B7280" />
-                    <Text style={styles.checkpointDate}>{formatDate(checkpoint.Date)}</Text>
-                  </View>
-                  {checkpoint.Time && (
-                    <View style={styles.dateTimeItem}>
-                      <Ionicons name="time-outline" size={14} color="#6B7280" />
-                      <Text style={styles.checkpointTime}>{checkpoint.Time}</Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-
-              {/* Arrow */}
-              <Ionicons name="chevron-forward" size={20} color="#9BA1A6" />
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    </View>
+    <FlatList
+      data={filteredCheckpoints}
+      renderItem={renderCheckpointItem}
+      keyExtractor={(item) => item.id.toString()}
+      style={styles.container}
+      contentContainerStyle={styles.listContainer}
+      showsVerticalScrollIndicator={true}
+      scrollEnabled={true}
+      bounces={true}
+      removeClippedSubviews={false}
+    />
   );
 }
 
@@ -130,6 +161,7 @@ const styles = StyleSheet.create({
   },
   listContainer: {
     paddingVertical: 8,
+    paddingBottom: 20,
   },
   loadingContainer: {
     flex: 1,

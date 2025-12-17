@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
@@ -19,9 +19,10 @@ interface BottomDrawerProps {
 
 export function BottomDrawer({ isOpen, onClose, children }: BottomDrawerProps) {
   const insets = useSafeAreaInsets();
-  const translateY = useSharedValue(1000);
+  const translateY = useSharedValue(2000); // Start off-screen completely
   const opacity = useSharedValue(0);
   const startY = useSharedValue(0);
+  const [isAnimating, setIsAnimating] = useState(false);
 
   const closeDrawer = () => {
     onClose();
@@ -30,16 +31,36 @@ export function BottomDrawer({ isOpen, onClose, children }: BottomDrawerProps) {
   useEffect(() => {
     if (isOpen) {
       // Ensure drawer opens from bottom
-      translateY.value = 1000;
+      translateY.value = 2000;
       opacity.value = 0;
-      // Small delay to ensure state is set
+      setIsAnimating(true);
+      // Use requestAnimationFrame for smooth animation
       requestAnimationFrame(() => {
-        translateY.value = withTiming(0, { duration: 300 });
+        translateY.value = withTiming(0, { duration: 300 }, (finished) => {
+          'worklet';
+          if (finished) {
+            runOnJS(setIsAnimating)(false);
+          }
+        });
         opacity.value = withTiming(1, { duration: 300 });
       });
     } else {
-      translateY.value = withTiming(1000, { duration: 300 });
-      opacity.value = withTiming(0, { duration: 200 });
+      // Only animate close if drawer was previously open
+      if (translateY.value < 2000) {
+        setIsAnimating(true);
+        translateY.value = withTiming(2000, { duration: 300 }, (finished) => {
+          'worklet';
+          if (finished) {
+            runOnJS(setIsAnimating)(false);
+          }
+        });
+        opacity.value = withTiming(0, { duration: 200 });
+      } else {
+        // Already closed, just ensure values are set
+        translateY.value = 2000;
+        opacity.value = 0;
+        setIsAnimating(false);
+      }
     }
   }, [isOpen]);
 
@@ -54,9 +75,15 @@ export function BottomDrawer({ isOpen, onClose, children }: BottomDrawerProps) {
       }
     })
     .onEnd((event) => {
-      // If dragged down more than 100px, close the drawer
+      // If dragged down more than 100px, close the drawer completely
       if (event.translationY > 100 || translateY.value > 200) {
-        translateY.value = withTiming(1000, { duration: 300 });
+        runOnJS(setIsAnimating)(true);
+        translateY.value = withTiming(2000, { duration: 300 }, (finished) => {
+          'worklet';
+          if (finished) {
+            runOnJS(setIsAnimating)(false);
+          }
+        });
         opacity.value = withTiming(0, { duration: 200 });
         runOnJS(closeDrawer)();
       } else {
@@ -77,7 +104,10 @@ export function BottomDrawer({ isOpen, onClose, children }: BottomDrawerProps) {
     };
   });
 
-  if (!isOpen && translateY.value === 1000) {
+  // Always render if isOpen is true (drawer should be visible)
+  // If closed, only render if still animating (closing animation)
+  // Otherwise, don't render (fully closed)
+  if (!isOpen && !isAnimating) {
     return null;
   }
 
@@ -169,6 +199,7 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingTop: 8,
+    paddingHorizontal: 2,
   },
   defaultContent: {
     paddingVertical: 20,

@@ -5,7 +5,7 @@ import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Linking, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Linking, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Animated, {
     useAnimatedStyle,
     useSharedValue,
@@ -23,6 +23,7 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCheckpoint, setSelectedCheckpoint] = useState<Checkpoint | null>(null);
+  const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
   
   // Fetch checkpoints
   const { checkpoints, loading } = useCheckpoints();
@@ -125,7 +126,7 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
         testID={options.tabBarTestID}
         onPress={onPress}
         onLongPress={onLongPress}
-        style={styles.tab}>
+        style={styles.bottomTab}>
         <Ionicons
           name={iconName}
           size={24}
@@ -187,11 +188,7 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
             duration: 300,
           });
         }}>
-        <ScrollView 
-          style={styles.drawerScrollView}
-          contentContainerStyle={styles.drawerContent}
-          showsVerticalScrollIndicator={true}
-          nestedScrollEnabled={true}>
+        <View style={styles.drawerContentWrapper}>
           <Text style={styles.drawerTitle}>DUI Checkpoints</Text>
           
           {/* Search Bar */}
@@ -211,11 +208,32 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
             )}
           </View>
 
-          {/* Checkpoint List */}
+          {/* Tabs */}
+          <View style={styles.tabsContainer}>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'upcoming' && styles.tabActive]}
+              onPress={() => setActiveTab('upcoming')}
+              activeOpacity={0.7}>
+              <Text style={[styles.tabText, activeTab === 'upcoming' && styles.tabTextActive]}>
+                Upcoming
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'past' && styles.tabActivePast]}
+              onPress={() => setActiveTab('past')}
+              activeOpacity={0.7}>
+              <Text style={[styles.tabText, activeTab === 'past' && styles.tabTextActivePast]}>
+                Past
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Checkpoint List - Using FlatList for better scrolling */}
           <CheckpointList
             checkpoints={checkpoints}
             loading={loading}
             searchQuery={searchQuery}
+            activeTab={activeTab}
             onSearchChange={setSearchQuery}
             onCheckpointSelect={(checkpoint) => {
               setSelectedCheckpoint(checkpoint);
@@ -225,7 +243,7 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
             }}
             selectedCheckpoint={selectedCheckpoint}
           />
-        </ScrollView>
+        </View>
       </BottomDrawer>
     </>
   );
@@ -275,7 +293,7 @@ const styles = StyleSheet.create({
     minHeight: 64,
     maxHeight: 64,
   },
-  tab: {
+  bottomTab: {
     width: 56,
     height: 56,
     alignItems: 'center',
@@ -373,12 +391,46 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
   },
-  drawerScrollView: {
+  drawerContentWrapper: {
     flex: 1,
-  },
-  drawerContent: {
     paddingTop: 8,
-    paddingBottom: 20,
+    paddingHorizontal: 2,
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    marginBottom: 12,
+    marginTop: 4,
+    gap: 8,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  tabActive: {
+    backgroundColor: '#FF3B30',
+    borderColor: '#FF3B30',
+  },
+  tabActivePast: {
+    backgroundColor: '#007AFF',
+    borderColor: '#007AFF',
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  tabTextActive: {
+    color: '#FFFFFF',
+  },
+  tabTextActivePast: {
+    color: '#FFFFFF',
   },
   drawerTitle: {
     fontSize: 24,

@@ -11,6 +11,8 @@ export interface Checkpoint {
   Location?: string;
   Time?: string;
   Notes?: string;
+  Latitude?: number;
+  Longitude?: number;
   created_at?: string;
   updated_at?: string;
 }
